@@ -19,7 +19,7 @@ class ObjectCounterApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'شمارش کالا با دوربین',
+      title: 'شمارش اشیاء با دوربین',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
@@ -49,8 +49,8 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
   bool _isCameraInitialized = false;
   bool _isScanning = true;
   bool _isProcessing = false;
-  Map<String, int> _objectCounts = {};
-  int _totalObjects = 0;
+  int _objectCount = 0;
+  List<Map<String, dynamic>> _detectedObjects = [];
 
   @override
   void initState() {
@@ -130,7 +130,7 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
       }
 
       setState(() {
-        _updateCounts(detectedObjects);
+        _updateDetections(detectedObjects);
       });
     } catch (e) {
       print('❌ خطا در پردازش: $e');
@@ -141,15 +141,12 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
 
   InputImage? _convertCameraImageToInputImage(CameraImage image) {
     try {
-      // روش ساده‌تر برای تبدیل تصویر
       final int width = image.width;
       final int height = image.height;
       
-      // گرفتن داده‌های تصویر
       final Plane plane = image.planes[0];
       final int bufferSize = plane.bytes.length;
       
-      // ایجاد لیست بایت
       final bytes = Uint8List(bufferSize);
       bytes.setAll(0, plane.bytes);
 
@@ -170,11 +167,12 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
     }
   }
 
-  void _updateCounts(List<DetectedObject> objects) {
-    Map<String, int> newCounts = {};
-
+  void _updateDetections(List<DetectedObject> objects) {
+    // فقط اشیاء با اطمینان بالا را در نظر بگیر
+    List<Map<String, dynamic>> validObjects = [];
+    
     for (var object in objects) {
-      String label = 'شیء ناشناس';
+      String label = 'شیء';
       double maxConfidence = 0.0;
 
       for (var labelObj in object.labels) {
@@ -184,21 +182,23 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
         }
       }
 
+      // اشیاء با اطمینان بالای 0.5 را قبول کن
       if (maxConfidence > 0.5) {
-        newCounts[label] = (newCounts[label] ?? 0) + 1;
+        validObjects.add({
+          'label': label,
+          'confidence': maxConfidence,
+        });
       }
     }
 
-    if (newCounts.isNotEmpty) {
-      _objectCounts = newCounts;
-      _totalObjects = newCounts.values.fold(0, (sum, count) => sum + count);
-    }
+    _objectCount = validObjects.length;
+    _detectedObjects = validObjects;
   }
 
-  void _resetCounts() {
+  void _resetCount() {
     setState(() {
-      _objectCounts.clear();
-      _totalObjects = 0;
+      _objectCount = 0;
+      _detectedObjects = [];
     });
   }
 
@@ -213,7 +213,7 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
     });
   }
 
-  void _showSnapshotDialog() {
+  void _showResultDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -222,42 +222,80 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
         ),
         title: const Row(
           children: [
-            Icon(Icons.photo_camera, color: Colors.blue),
+            Icon(Icons.analytics, color: Colors.blue),
             SizedBox(width: 8),
-            Text('لحظه ثبت شد'),
+            Text('نتیجه شمارش'),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'نتایج شمارش در این لحظه:',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.blue.shade50, Colors.blue.shade100],
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'تعداد کل اشیاء:',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    '$_objectCount',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: _objectCount > 0 ? Colors.green : Colors.red,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            if (_objectCounts.isEmpty)
-              const Text('هیچ کالایی تشخیص داده نشد')
-            else
-              ..._objectCounts.entries.map((entry) {
+            const SizedBox(height: 16),
+            if (_detectedObjects.isNotEmpty) ...[
+              const Text(
+                'جزئیات تشخیص داده شده:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ..._detectedObjects.map((obj) {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(entry.key),
+                      Row(
+                        children: [
+                          Text(_getEmojiForLabel(obj['label'])),
+                          const SizedBox(width: 8),
+                          Text(obj['label']),
+                        ],
+                      ),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
+                          horizontal: 8,
+                          vertical: 2,
                         ),
                         decoration: BoxDecoration(
                           color: Colors.blue.shade100,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          '${entry.value}',
+                          '${(obj['confidence'] * 100).toStringAsFixed(0)}%',
                           style: const TextStyle(
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -266,32 +304,7 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                   ),
                 );
               }),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green.shade300),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'مجموع کالاها:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    '$_totalObjects',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            ],
           ],
         ),
         actions: [
@@ -302,9 +315,9 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              _showSuccessMessage('✅ لحظه با $_totalObjects کالا ثبت شد');
+              _showSuccessMessage('✅ تعداد $_objectCount شیء ثبت شد');
             },
-            child: const Text('ذخیره'),
+            child: const Text('تأیید'),
           ),
         ],
       ),
@@ -328,7 +341,7 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('📷 شمارش کالا با دوربین'),
+        title: const Text('📷 شمارش اشیاء با دوربین'),
         backgroundColor: Colors.blue.shade700,
         foregroundColor: Colors.white,
         actions: [
@@ -336,6 +349,11 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
             icon: Icon(_isScanning ? Icons.pause : Icons.play_arrow),
             onPressed: _toggleScanning,
             tooltip: _isScanning ? 'توقف اسکن' : 'شروع اسکن',
+          ),
+          IconButton(
+            icon: const Icon(Icons.analytics),
+            onPressed: _showResultDialog,
+            tooltip: 'مشاهده نتیجه',
           ),
         ],
       ),
@@ -357,12 +375,13 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                     ? Stack(
                         children: [
                           CameraPreview(_cameraController!),
+                          
                           // نمایش کادر دوربین
                           if (_isScanning)
                             Center(
                               child: Container(
-                                width: 250,
-                                height: 150,
+                                width: 280,
+                                height: 180,
                                 decoration: BoxDecoration(
                                   border: Border.all(
                                     color: Colors.green.shade400,
@@ -379,44 +398,51 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                                 ),
                               ),
                             ),
+                          
                           // نمایش تعداد لحظه‌ای روی دوربین
-                          if (_isScanning && _totalObjects > 0)
-                            Positioned(
-                              top: 16,
-                              right: 16,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.7),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: Colors.green.shade400,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.circle,
-                                      color: Colors.green,
-                                      size: 12,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '$_totalObjects کالا',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
+                          Positioned(
+                            top: 16,
+                            right: 16,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.8),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: _objectCount > 0 
+                                      ? Colors.green.shade400 
+                                      : Colors.orange.shade400,
+                                  width: 2,
                                 ),
                               ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _objectCount > 0 
+                                        ? Icons.check_circle 
+                                        : Icons.search,
+                                    color: _objectCount > 0 
+                                        ? Colors.green 
+                                        : Colors.orange,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '$_objectCount',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
+                          ),
+                          
                           // وضعیت اسکن
                           Positioned(
                             bottom: 16,
@@ -444,7 +470,7 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                                   const SizedBox(width: 8),
                                   Text(
                                     _isScanning
-                                        ? 'اسکن فعال 🔴'
+                                        ? 'در حال شمارش... 🔴'
                                         : 'متوقف شده ⏸️',
                                     style: const TextStyle(
                                       color: Colors.white,
@@ -455,6 +481,23 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                               ),
                             ),
                           ),
+                          
+                          // راهنمای کاربر
+                          if (_isScanning && _objectCount == 0)
+                            const Positioned(
+                              bottom: 60,
+                              right: 0,
+                              left: 0,
+                              child: Text(
+                                'اشیاء را در کادر سبز قرار دهید',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
                         ],
                       )
                     : const Center(
@@ -466,7 +509,7 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
             ),
           ),
 
-          // پنل نمایش آمار
+          // پنل پایین
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -485,24 +528,27 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
             ),
             child: Column(
               children: [
+                // نمایش تعداد
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      '📊 آمار شمارش:',
+                      '📊 تعداد اشیاء شناسایی شده:',
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
+                        horizontal: 20,
+                        vertical: 10,
                       ),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [Colors.blue.shade600, Colors.blue.shade800],
+                          colors: _objectCount > 0
+                              ? [Colors.green.shade600, Colors.green.shade800]
+                              : [Colors.grey.shade600, Colors.grey.shade800],
                         ),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
@@ -514,18 +560,18 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(
-                            Icons.circle,
-                            color: Colors.green,
-                            size: 10,
+                          Icon(
+                            _objectCount > 0 ? Icons.check : Icons.search,
+                            color: Colors.white,
+                            size: 16,
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            '$_totalObjects',
+                            '$_objectCount',
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 18,
+                              fontSize: 22,
                             ),
                           ),
                         ],
@@ -533,108 +579,10 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                     ),
                   ],
                 ),
+                
                 const SizedBox(height: 12),
-
-                // لیست اشیاء تشخیص داده شده
-                _objectCounts.isEmpty
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.search_off,
-                                size: 40,
-                                color: Colors.grey,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'کالایی تشخیص داده نشد 🧐',
-                                style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              Text(
-                                'کالا را در کادر سبز قرار دهید',
-                                style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _objectCounts.entries.map((entry) {
-                          return Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: Colors.blue.shade300,
-                                width: 2,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.blue.withOpacity(0.1),
-                                  blurRadius: 4,
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _getEmojiForLabel(entry.key),
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  entry.key,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Colors.blue.shade600,
-                                        Colors.blue.shade800,
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    '${entry.value}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      ),
-
-                const SizedBox(height: 12),
+                
+                // دکمه‌ها
                 Row(
                   children: [
                     Expanded(
@@ -648,8 +596,8 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                           ),
                         ),
                         icon: const Icon(Icons.refresh),
-                        label: const Text('ریست شمارش'),
-                        onPressed: _resetCounts,
+                        label: const Text('شروع مجدد'),
+                        onPressed: _resetCount,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -663,13 +611,52 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        icon: const Icon(Icons.photo_camera),
-                        label: const Text('ثبت لحظه'),
-                        onPressed: _showSnapshotDialog,
+                        icon: const Icon(Icons.analytics),
+                        label: const Text('مشاهده نتیجه'),
+                        onPressed: _showResultDialog,
                       ),
                     ),
                   ],
                 ),
+                
+                const SizedBox(height: 8),
+                
+                // نمایش نمونه اشیاء تشخیص داده شده
+                if (_detectedObjects.isNotEmpty)
+                  Container(
+                    height: 30,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _detectedObjects.length > 5 ? 5 : _detectedObjects.length,
+                      itemBuilder: (context, index) {
+                        final obj = _detectedObjects[index];
+                        return Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Text(_getEmojiForLabel(obj['label'])),
+                              const SizedBox(width: 4),
+                              Text(
+                                obj['label'],
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
               ],
             ),
           ),
