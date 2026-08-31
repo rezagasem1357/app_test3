@@ -1,26 +1,15 @@
 name: object_counter_test
-description: اپلیکیشن هوشمند شمارش کالا و اجسام با دوربین
-publish_to: 'none'
-
+description: تست شمارش کالا با دوربین
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  
-  # پکیج مدیریت دوربین
   camera: ^0.10.5+9
-  
-  # پکیج هوش مصنوعی شناسایی اجسام گوگل
   google_mlkit_object_detection: ^0.11.0
-  
-  # پکیج مدیریت فرمت‌های تصویر و بایت‌ها
-  google_mlkit_commons: ^0.7.0
-  
-  # پکیج پردازش تصویر (اختیاری برای تنظیمات بعدی)
   image: ^4.1.3
 
 dev_dependencies:
