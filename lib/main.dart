@@ -1,7 +1,8 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 late List<CameraDescription> _cameras;
 
@@ -44,31 +45,31 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
     _initCamera();
   }
 
-  // ۱. مقداردهی اولیه پردازشگر ML Kit
   void _initDetector() {
+    // تنظیمات دقیق برای حساسیت بالاتر شناسایی اجسام
     final options = ObjectDetectorOptions(
-      mode: DetectionMode.stream, // حالت استریم زنده ویدیو
-      classifyObjects: true,      // دسته‌بندی اشیاء
-      multipleObjects: true,      // اجازه شناسایی چند شیء همزمان در تصویر
+      mode: DetectionMode.stream,
+      classifyObjects: true,
+      multipleObjects: true,
     );
     _objectDetector = ObjectDetector(options: options);
   }
 
-  // ۲. راه‌اندازی دوربین
   Future<void> _initCamera() async {
     if (_cameras.isEmpty) return;
 
-    // استفاده از اولین دوربین (دوربین پشت)
     _cameraController = CameraController(
       _cameras[0],
       ResolutionPreset.medium,
       enableAudio: false,
+      imageFormatGroup: PlatformDispatcher.instance.defaultLocale.languageCode == 'android' 
+          ? ImageFormatGroup.nv21 
+          : ImageFormatGroup.bgra8888,
     );
 
     await _cameraController!.initialize();
     if (!mounted) return;
 
-    // شروع استریم تصویر
     _cameraController!.startImageStream((CameraImage image) {
       if (!_isProcessing && _objectDetector != null) {
         _isProcessing = true;
@@ -79,54 +80,40 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
     setState(() {});
   }
 
-  // ۳. پردازش زنده فریم دوربین
   Future<void> _processFrame(CameraImage image) async {
-    final InputImage? inputImage = _convertCameraImageToInputImage(image);
-    if (inputImage == null) {
-      _isProcessing = false;
-      return;
-    }
-
     try {
-      // شناسایی اشیاء توسط ML Kit
-      final List<DetectedObject> detectedObjects = 
-          await _objectDetector!.processImage(inputImage);
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in image.planes) {
+        allBytes.putUint8List(plane.bytes);
+      }
+      final bytes = allBytes.done().buffer.asUint8List();
+
+      final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
+      final camera = _cameras[0];
+      final imageRotation = InputImageRotationValue.fromRawValue(camera.sensorOrientation) ?? InputImageRotation.rotation0deg;
+      final inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21;
+
+      final inputImageData = InputImageMetadata(
+        size: imageSize,
+        rotation: imageRotation,
+        format: inputImageFormat,
+        bytesPerRow: image.planes[0].bytesPerRow,
+      );
+
+      final inputImage = InputImage.fromBytes(bytes: bytes, metadata: inputImageData);
+
+      final List<DetectedObject> detectedObjects = await _objectDetector!.processImage(inputImage);
 
       if (mounted) {
         setState(() {
-          _objectCount = detectedObjects.length; // تعداد کارهای پردازش شده
+          _objectCount = detectedObjects.length;
         });
       }
     } catch (e) {
-      print("خطا در پردازش تصویر: $e");
+      print("خطا در پردازش: $e");
     } finally {
       _isProcessing = false;
     }
-  }
-
-  // تبدیل فریم دوربین به فرمت قابل فهم برای Google ML Kit
-  InputImage? _convertCameraImageToInputImage(CameraImage image) {
-    final camera = _cameras[0];
-    final sensorOrientation = camera.sensorOrientation;
-    
-    InputImageRotation? rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
-    if (rotation == null) return null;
-
-    final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null) return null;
-
-    if (image.planes.isEmpty) return null;
-    final plane = image.planes.first;
-
-    return InputImage.fromBytes(
-      bytes: plane.bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: rotation,
-        format: format,
-        bytesPerRow: plane.bytesPerRow,
-      ),
-    );
   }
 
   @override
@@ -146,16 +133,13 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("شمارشگر هوشمند کالا"),
-        backgroundColor: Colors.blueAccent,
+        title: const Text("شمارشگر کالا (اصلاح شده)"),
+        backgroundColor: Colors.indigo,
         centerTitle: true,
       ),
       body: Stack(
         children: [
-          // نمایش تصویر زنده دوربین
           CameraPreview(_cameraController!),
-
-          // باکس نمایش تعداد اجسام در پایین صفحه
           Positioned(
             bottom: 30,
             left: 20,
@@ -163,23 +147,23 @@ class _ObjectCounterScreenState extends State<ObjectCounterScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.75),
+                color: Colors.black87,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.blueAccent, width: 2),
+                border: Border.all(color: Colors.indigoAccent, width: 2),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    "تعداد کالا/اجسام شناسایی شده",
+                    "تعداد اجسام شناسایی شده در کادر",
                     style: TextStyle(color: Colors.white70, fontSize: 16),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Text(
                     "$_objectCount",
-                    style: const TextStyle(
-                      color: Colors.greenAccent,
-                      fontSize: 50,
+                    style: TextStyle(
+                      color: _objectCount > 0 ? Colors.greenAccent : Colors.orangeAccent,
+                      fontSize: 52,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
